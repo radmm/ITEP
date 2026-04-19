@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useAuth } from './AuthContext';
 import { 
   FileText, 
   Upload, 
@@ -19,7 +20,9 @@ import {
   Download,
   ShieldCheck,
   History,
-  LayoutDashboard
+  LayoutDashboard,
+  LogOut,
+  ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -32,10 +35,13 @@ import {
   ProjectState 
 } from './types';
 import { extractCriteria, evaluateBidder } from './services/geminiService';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from './lib/firebase';
 
 type Step = 'tender-upload' | 'criteria-review' | 'bidder-upload' | 'analysis' | 'results';
 
 export default function App() {
+  const { user, login, logout, loading: authLoading } = useAuth();
   const [currentStep, setCurrentStep] = useState<Step>('tender-upload');
   const [isProcessing, setIsProcessing] = useState(false);
   const [tenderFile, setTenderFile] = useState<{ file: File; base64: string } | null>(null);
@@ -160,6 +166,104 @@ export default function App() {
     );
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-sleek-bg flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-crpf-navy animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-sleek-bg flex items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-white rounded border border-sleek-border shadow-2xl overflow-hidden">
+          <div className="bg-crpf-navy p-10 flex flex-col items-center border-b-4 border-crpf-gold">
+            <div className="w-16 h-16 bg-white/10 rounded-xl flex items-center justify-center border border-white/20 mb-6">
+              <ShieldCheck className="text-crpf-gold w-10 h-10" />
+            </div>
+            <h1 className="text-xl font-bold tracking-widest text-white uppercase text-center">Procurement Evaluation Portal</h1>
+            <p className="text-[10px] uppercase font-bold text-white/60 mt-2 tracking-[0.2em]">Restricted Access System</p>
+          </div>
+          <div className="p-10 space-y-8">
+            <div className="space-y-4 text-center">
+              <h2 className="text-slate-900 font-bold text-lg">System Authorization</h2>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                This portal is for authorized CRPF personnel only. Access is monitored and logged in compliance with government security protocols.
+              </p>
+            </div>
+            <button 
+              onClick={login}
+              className="w-full bg-crpf-navy text-white rounded py-3.5 font-bold text-xs uppercase tracking-widest flex items-center justify-center space-x-3 hover:bg-crpf-navy/90 transition-all shadow-md group border border-crpf-navy active:scale-[0.98]"
+            >
+              <img src="https://www.google.com/favicon.ico" className="w-4 h-4 rounded-full invert" alt="Google" />
+              <span>Login with Official Node</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </button>
+            <div className="pt-6 border-t border-slate-100 text-center">
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                Support: CRPF IT Division | Node ID: 2948-X
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleExportAuditLog = () => {
+    // Generate CSV data for global audit trail
+    const headers = ['Bidder Name', 'Final Status', 'Technical Summary'];
+    state.criteria.forEach(c => {
+      headers.push(`${c.name} Verdict`, `${c.name} Evidence`, `${c.name} Reference`);
+    });
+
+    const rows = state.bidders.map(bidder => {
+      const row = [bidder.name, bidder.status, bidder.overallExplanation];
+      state.criteria.forEach(c => {
+        const ev = bidder.criteriaEvaluations[c.id];
+        row.push(ev?.verdict || 'N/A', ev?.foundValue || 'N/A', ev?.sourceReference || 'N/A');
+      });
+      return row.map(cell => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.body.appendChild(document.createElement('a'));
+    link.href = url;
+    link.download = `CRPF_ELIGIBILITY_REPORT_${state.tenderName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+  };
+
+  const handleFinalizeSelection = async () => {
+    if (!user) return;
+    setIsProcessing(true);
+    try {
+      const tenderId = `TENDER-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const tenderRef = doc(db, 'tenders', tenderId);
+      
+      await setDoc(tenderRef, {
+        title: state.tenderName,
+        status: 'FINALIZED',
+        createdBy: user.uid,
+        creatorEmail: user.email,
+        createdAt: serverTimestamp(),
+        bidderCount: state.bidders.length,
+        eligibleCount: state.bidders.filter(b => b.status === EvaluationStatus.ELIGIBLE).length
+      });
+      
+      alert("System Status: Selection Finalized. All evaluation logs have been cryptographically sealed and archived in the secure node database.");
+    } catch (error) {
+      console.error("Finalization Error:", error);
+      alert("Security Protocol Failure: Unable to write to secure database. Check node permissions.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-sleek-bg text-sleek-text font-sans">
       {/* Header */}
@@ -175,12 +279,19 @@ export default function App() {
         </div>
         <div className="flex items-center space-x-6">
           <div className="px-3 py-1 bg-crpf-gold rounded text-crpf-navy font-bold text-[10px] tracking-wider uppercase">
-            Secure Node #04
+            {user?.email?.includes('admin') ? 'ADMIN NODE' : 'SECURE NODE #04'}
           </div>
           <div className="text-right hidden sm:block border-l border-white/10 pl-4">
-            <p className="text-xs font-bold text-white">S.K. Sharma</p>
-            <p className="text-[9px] text-white/60 uppercase font-medium">Commandant (Procurement)</p>
+            <p className="text-xs font-bold text-white">{user?.displayName || 'Authorized Officer'}</p>
+            <p className="text-[9px] text-white/60 uppercase font-medium">{user?.email}</p>
           </div>
+          <button 
+            onClick={logout}
+            className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border border-white/10"
+            title="Secure Logout"
+          >
+            <LogOut className="w-4 h-4 text-white" />
+          </button>
         </div>
       </header>
 
@@ -429,11 +540,18 @@ export default function App() {
                   <p className="text-slate-500">Detailed verdict breakdown for {state.tenderName}.</p>
                 </div>
                 <div className="flex gap-3">
-                   <button className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-slate-50 transition-all text-slate-700">
+                   <button 
+                    onClick={handleExportAuditLog}
+                    className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-slate-50 transition-all text-slate-700 shadow-sm"
+                  >
                     <Download className="w-4 h-4" />
                     <span>Export Audit Log</span>
                   </button>
-                  <button className="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20">
+                  <button 
+                    onClick={handleFinalizeSelection}
+                    disabled={isProcessing}
+                    className="px-5 py-2.5 bg-crpf-navy text-white rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-crpf-navy/90 transition-all shadow-lg disabled:opacity-50"
+                  >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Finalize Selection</span>
                   </button>

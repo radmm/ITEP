@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "Tender": {
+      "title": "Tender Document",
+      "description": "Details of the government tender being evaluated",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "referenceId": { "type": "string" },
+        "closingDate": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "createdBy", "createdAt"]
+    },
+    "Criterion": {
+      "title": "Eligibility Criterion",
+      "description": "A specific requirement extracted from the tender",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["TECHNICAL", "FINANCIAL", "COMPLIANCE"] },
+        "isMandatory": { "type": "boolean" },
+        "evidenceRequirement": { "type": "string" }
+      },
+      "required": ["name", "type", "isMandatory"]
+    },
+    "Bidder": {
+      "title": "Bidder Submission",
+      "description": "A company participating in the tender",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "ELIGIBLE", "INELIGIBLE", "MANUAL_REVIEW"] },
+        "overallExplanation": { "type": "string" },
+        "files": { 
+          "type": "array",
+          "description": "List of uploaded documents"
+        }
+      },
+      "required": ["name", "status"]
+    },
+    "CriterionEvaluation": {
+      "title": "Criterion Evaluation",
+      "description": "AI analysis of a specific criterion for a bidder",
+      "type": "object",
+      "properties": {
+        "criterionId": { "type": "string" },
+        "verdict": { "type": "string", "enum": ["PASS", "FAIL", "UNCERTAIN"] },
+        "explanation": { "type": "string" },
+        "foundValue": { "type": "string" },
+        "sourceReference": { "type": "string" }
+      },
+      "required": ["criterionId", "verdict"]
+    }
+  },
+  "firestore": {
+    "/tenders/{tenderId}": {
+      "schema": "Tender",
+      "description": "Main tender collection"
+    },
+    "/tenders/{tenderId}/criteria/{criterionId}": {
+      "schema": "Criterion",
+      "description": "Extracted criteria for a tender"
+    },
+    "/tenders/{tenderId}/bidders/{bidderId}": {
+      "schema": "Bidder",
+      "description": "Bidders registered for a tender"
+    },
+    "/tenders/{tenderId}/bidders/{bidderId}/evaluations/{criterionId}": {
+      "schema": "CriterionEvaluation",
+      "description": "Evaluation results per criterion per bidder"
+    }
+  }
+}

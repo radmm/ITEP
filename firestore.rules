@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitives
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation Helpers
+    function isValidTender(data) {
+      return data.keys().hasAll(['title', 'createdBy', 'createdAt']) 
+        && data.title is string && data.title.size() <= 256
+        && data.createdBy == request.auth.uid
+        && data.createdAt == request.time;
+    }
+
+    function isValidCriterion(data) {
+      return data.keys().hasAll(['name', 'type', 'isMandatory'])
+        && data.name is string && data.name.size() <= 256
+        && data.type in ['TECHNICAL', 'FINANCIAL', 'COMPLIANCE']
+        && data.isMandatory is bool;
+    }
+
+    function isValidBidder(data) {
+      return data.keys().hasAll(['name', 'status'])
+        && data.name is string && data.name.size() <= 256
+        && data.status in ['PENDING', 'ELIGIBLE', 'INELIGIBLE', 'MANUAL_REVIEW'];
+    }
+
+    function isValidEvaluation(data) {
+      return data.keys().hasAll(['criterionId', 'verdict'])
+        && data.criterionId is string && data.criterionId.size() <= 128
+        && data.verdict in ['PASS', 'FAIL', 'UNCERTAIN'];
+    }
+
+    // 1. Master Gate & Path Rules
+    match /tenders/{tenderId} {
+      allow create: if isVerified() && isValidId(tenderId) && isValidTender(incoming());
+      allow get: if isVerified() && (isOwner(existing().createdBy));
+      allow list: if isVerified() && resource.data.createdBy == request.auth.uid;
+      allow update: if isVerified() && isOwner(existing().createdBy) && isValidTender(incoming())
+        && incoming().createdBy == existing().createdBy;
+      allow delete: if isVerified() && isOwner(existing().createdBy);
+
+      function isTenderOwner() {
+        return get(/databases/$(database)/documents/tenders/$(tenderId)).data.createdBy == request.auth.uid;
+      }
+
+      match /criteria/{criterionId} {
+        allow read: if isVerified() && isTenderOwner();
+        allow write: if isVerified() && isTenderOwner() && isValidCriterion(incoming());
+      }
+
+      match /bidders/{bidderId} {
+        allow read: if isVerified() && isTenderOwner();
+        allow write: if isVerified() && isTenderOwner() && isValidBidder(incoming());
+        
+        match /evaluations/{evalId} {
+          allow read: if isVerified() && isTenderOwner();
+          allow write: if isVerified() && isTenderOwner() && isValidEvaluation(incoming());
+        }
+      }
+    }
+  }
+}
