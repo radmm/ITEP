@@ -70,14 +70,21 @@ export default function App() {
 
   // --- Handlers ---
   const onTenderDrop = useCallback(async (acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (!file) return;
+    if (acceptedFiles.length === 0) return;
 
     setIsProcessing(true);
     try {
-      const base64 = await fileToBase64(file);
-      setTenderFile({ file, base64 });
-      const extracted = await extractCriteria(base64, file.type);
+      const filesWithBase64 = await Promise.all(acceptedFiles.map(async f => ({
+        file: f,
+        base64: await fileToBase64(f)
+      })));
+      
+      // Store the first one as primary for display, but process all
+      setTenderFile(filesWithBase64[0]);
+      
+      const payload = filesWithBase64.map(f => ({ base64: f.base64, mimeType: f.file.type }));
+      const extracted = await extractCriteria(payload);
+      
       setState(prev => ({ 
         ...prev, 
         tenderName: extracted.tenderName, 
@@ -86,7 +93,7 @@ export default function App() {
       setCurrentStep('criteria-review');
     } catch (error) {
       console.error('Failed to extract criteria:', error);
-      alert('Error parsing tender. Please check the file format.');
+      alert('Error parsing tender documents. Please check the file formats.');
     } finally {
       setIsProcessing(false);
     }
@@ -95,7 +102,7 @@ export default function App() {
   const { getRootProps: getTenderRootProps, getInputProps: getTenderInputProps, isDragActive: isTenderDragActive } = useDropzone({
     onDrop: onTenderDrop,
     accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] },
-    multiple: false
+    multiple: true
   } as any);
 
   const handleStartAnalysis = async () => {
@@ -155,7 +162,8 @@ export default function App() {
 
   const { getRootProps: getBulkRootProps, getInputProps: getBulkInputProps, isDragActive: isBulkDragActive } = useDropzone({
     onDrop: onBulkBidderDrop,
-    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] }
+    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] },
+    multiple: true
   } as any);
 
   const onBidderFileDrop = async (bidderName: string, files: File[]) => {

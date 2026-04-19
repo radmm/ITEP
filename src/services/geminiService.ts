@@ -23,14 +23,14 @@ async function callGeminiWithRetry(params: any, retries = 2): Promise<any> {
 }
 
 /**
- * Extracts eligibility criteria from a tender document.
+ * Extracts eligibility criteria from one or more tender documents.
  */
-export async function extractCriteria(fileBase64: string, mimeType: string): Promise<{ tenderName: string; criteria: Criterion[] }> {
+export async function extractCriteria(files: { base64: string; mimeType: string }[]): Promise<{ tenderName: string; criteria: Criterion[] }> {
   const model = "gemini-3.1-pro-preview";
   
   const systemInstruction = `
     You are an expert procurement officer specialized in Indian Government Tenders (CRPF).
-    Your task is to analyze a tender document and extract all ELIGIBILITY CRITERIA.
+    Your task is to analyze the provided tender document(s) and extract all ELIGIBILITY CRITERIA.
     
     Categorize them into: Technical, Financial, Compliance, and Documentation.
     Distinguish between Mandatory and Optional based on the language (e.g., "must", "shall", "mandatory" vs "desirable", "optional").
@@ -43,13 +43,15 @@ export async function extractCriteria(fileBase64: string, mimeType: string): Pro
     5. What specific evidence/value should be looked for (e.g., "GST Number", "Turnover amount", "ISO Certificate date").
   `;
 
+  const fileParts = files.map(f => ({ inlineData: { data: f.base64, mimeType: f.mimeType } }));
+
   return await callGeminiWithRetry({
     model,
     contents: [
       {
         parts: [
-          { inlineData: { data: fileBase64, mimeType } },
-          { text: "Extract the tender name and all eligibility criteria in JSON format." }
+          ...fileParts,
+          { text: "Extract the tender name and all eligibility criteria in JSON format from the provided document(s)." }
         ]
       }
     ],
