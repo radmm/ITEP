@@ -124,15 +124,39 @@ export default function App() {
     }
   };
 
-  const addBidder = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get('bidderName') as string;
-    if (name && !bidderFiles[name]) {
-      setBidderFiles(prev => ({ ...prev, [name]: [] }));
-      e.currentTarget.reset();
-    }
+  const removeBidder = (name: string) => {
+    setBidderFiles(prev => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   };
+
+  const removeBidderFile = (bidderName: string, fileIndex: number) => {
+    setBidderFiles(prev => ({
+      ...prev,
+      [bidderName]: prev[bidderName].filter((_, i) => i !== fileIndex)
+    }));
+  };
+
+  const onBulkBidderDrop = useCallback(async (acceptedFiles: File[]) => {
+    for (const f of acceptedFiles) {
+      const base64 = await fileToBase64(f);
+      const guessedName = f.name.split(/[._\-\s]/)[0];
+      setBidderFiles(prev => {
+        const existingFiles = prev[guessedName] || [];
+        return {
+          ...prev,
+          [guessedName]: [...existingFiles, { file: f, base64 }]
+        };
+      });
+    }
+  }, []);
+
+  const { getRootProps: getBulkRootProps, getInputProps: getBulkInputProps, isDragActive: isBulkDragActive } = useDropzone({
+    onDrop: onBulkBidderDrop,
+    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] }
+  } as any);
 
   const onBidderFileDrop = async (bidderName: string, files: File[]) => {
     const newFiles = await Promise.all(files.map(async f => ({ file: f, base64: await fileToBase64(f) })));
@@ -419,14 +443,15 @@ export default function App() {
           {currentStep === 'bidder-upload' && (
             <motion.div 
               key="bidder-upload"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
               className="space-y-8"
             >
-              <div className="flex items-end justify-between">
+              <div className="flex items-start justify-between">
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-bold tracking-tight">Step 2: Bidder Enrollment</h2>
-                  <p className="text-slate-500">Add bidders and upload their technical/financial responses.</p>
+                  <h2 className="text-3xl font-bold tracking-tight">Step 3: Bidder Discovery & Ingestion</h2>
+                  <p className="text-slate-500 max-w-2xl">Register bidders and upload their technical/financial document sets. Our AI handles multi-file packages (e.g. Turnover + ISO Cert + Experience Letters) per bidder.</p>
                 </div>
                 <button 
                   disabled={Object.keys(bidderFiles).length === 0 || isProcessing}
@@ -438,52 +463,68 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Add Bidder Panel */}
-                <div className="bg-white border border-sleek-border rounded p-8 space-y-6 shadow-sleek">
-                  <h3 className="text-sm font-extrabold uppercase tracking-widest flex items-center space-x-2 text-crpf-navy">
-                    <Users className="w-5 h-5" />
-                    <span>Register New Bidder</span>
-                  </h3>
-                  <form onSubmit={addBidder} className="flex gap-2">
-                    <input 
-                      name="bidderName" 
-                      placeholder="e.g. Acme Construction Pvt Ltd" 
-                      className="flex-1 bg-slate-50 border border-sleek-border rounded px-4 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-crpf-navy focus:border-crpf-navy transition-all" 
-                      required 
-                    />
-                    <button type="submit" className="bg-crpf-navy text-white px-4 py-2 rounded font-bold text-xs hover:bg-crpf-navy/90 transition-all">+</button>
-                  </form>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Bulk Discovery Zone */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div 
+                    {...getBulkRootProps()} 
+                    className={cn(
+                      "border-2 border-dashed rounded p-12 flex flex-col items-center justify-center text-center transition-all cursor-pointer group shadow-sm bg-white",
+                      isBulkDragActive ? "border-crpf-navy bg-slate-50" : "border-slate-200 hover:border-crpf-navy/40"
+                    )}
+                  >
+                    <input {...getBulkInputProps()} />
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4 border border-slate-200 group-hover:bg-crpf-navy/5">
+                      <LayoutDashboard className="w-5 h-5 text-crpf-navy" />
+                    </div>
+                    <h4 className="text-xs font-extrabold uppercase tracking-widest text-slate-900">Bulk Discovery</h4>
+                    <p className="text-[10px] text-slate-500 mt-2 font-medium">Drop all bidder documents here.<br/>System will auto-detect entities.</p>
+                  </div>
 
-                  <div className="space-y-3">
-                    {Object.keys(bidderFiles).map(name => (
-                      <div key={name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                        <span className="text-sm font-bold text-slate-700">{name}</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-[10px] font-bold text-slate-400">{bidderFiles[name].length} Files</span>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="bg-white border border-sleek-border rounded p-6 space-y-4 shadow-sleek">
+                    <h3 className="text-xs font-extrabold uppercase tracking-widest flex items-center space-x-2 text-crpf-navy">
+                      <Users className="w-4 h-4" />
+                      <span>Manual Registry</span>
+                    </h3>
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const name = new FormData(e.currentTarget).get('bidderName') as string;
+                      if(name && !bidderFiles[name]) {
+                        setBidderFiles(prev => ({ ...prev, [name]: [] }));
+                        e.currentTarget.reset();
+                      }
+                    }} className="flex gap-1">
+                      <input 
+                        name="bidderName" 
+                        placeholder="Company Name" 
+                        className="flex-1 bg-slate-50 border border-sleek-border rounded px-3 py-1.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-crpf-navy" 
+                        required 
+                      />
+                      <button type="submit" className="bg-crpf-navy text-white px-3 py-1.5 rounded font-bold text-[10px] hover:bg-crpf-navy/90">+</button>
+                    </form>
                   </div>
                 </div>
 
-                {/* Upload Console */}
-                <div className="space-y-4">
+                {/* Bidders Grid */}
+                <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <AnimatePresence mode="popLayout">
-                    {Object.keys(bidderFiles).map(name => (
+                    {Object.entries(bidderFiles).map(([name, files]) => (
                       <BidderUploadBox 
                         key={name}
-                        name={name}
-                        onDrop={(files) => onBidderFileDrop(name, files)}
-                        files={bidderFiles[name]}
+                        name={name} 
+                        onDrop={(f) => onBidderFileDrop(name, f)} 
+                        onRemove={() => removeBidder(name)}
+                        onRemoveFile={(idx) => removeBidderFile(name, idx)}
+                        files={files} 
                       />
                     ))}
                   </AnimatePresence>
                   {Object.keys(bidderFiles).length === 0 && (
-                     <div className="h-full border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center p-12 text-center opacity-40">
-                       <FileText className="w-12 h-12 mb-4 text-slate-300" />
-                       <p className="font-bold text-slate-400">Register bidders on the left to start uploading documents</p>
-                     </div>
+                    <div className="md:col-span-2 border border-sleek-border border-dashed rounded p-20 flex flex-col items-center justify-center text-center bg-white/50">
+                      <Users className="w-10 h-10 text-slate-200 mb-4" />
+                      <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Awaiting Bidder Packages</p>
+                      <p className="text-[10px] text-slate-400 mt-2 font-medium">Use Bulk Discovery or Manual Registry to start</p>
+                    </div>
                   )}
                 </div>
               </div>
@@ -719,10 +760,12 @@ export default function App() {
 interface BidderUploadBoxProps {
   name: string;
   onDrop: (files: File[]) => void;
+  onRemove: () => void;
+  onRemoveFile: (idx: number) => void;
   files: any[];
 }
 
-const BidderUploadBox: React.FC<BidderUploadBoxProps> = ({ name, onDrop, files }) => {
+const BidderUploadBox: React.FC<BidderUploadBoxProps> = ({ name, onDrop, onRemove, onRemoveFile, files }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] }
@@ -731,37 +774,50 @@ const BidderUploadBox: React.FC<BidderUploadBoxProps> = ({ name, onDrop, files }
   return (
     <motion.div 
       layout
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20, scale: 0.9 }}
-      className="bg-white border border-sleek-border rounded overflow-hidden shadow-sleek"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.1 } }}
+      className="bg-white border border-sleek-border rounded overflow-hidden shadow-sleek group"
     >
       <div className="px-5 py-3 border-b border-sleek-border flex items-center justify-between bg-slate-50/50">
-        <span className="text-[11px] font-bold text-slate-800 uppercase tracking-widest">{name} Response</span>
-        <span className={cn(
-          "text-[9px] font-bold px-2 py-0.5 rounded",
-          files.length > 0 ? "bg-green-100 text-green-600 border border-green-200" : "bg-slate-100 text-slate-400 border border-slate-200"
-        )}>
-          {files.length} Evidence Docs
-        </span>
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 rounded-full bg-crpf-navy animate-pulse" />
+          <span className="text-[11px] font-extrabold text-slate-800 uppercase tracking-widest">{name}</span>
+        </div>
+        <div className="flex items-center space-x-3">
+          <span className={cn(
+            "text-[9px] font-bold px-2 py-0.5 rounded",
+            files.length > 0 ? "bg-green-100 text-green-600 border border-green-200" : "bg-slate-100 text-slate-400 border border-slate-200"
+          )}>
+            {files.length} Docs
+          </span>
+          <button onClick={onRemove} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 hover:text-red-500 rounded transition-all">
+            <XCircle className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
       <div 
         {...getRootProps()} 
         className={cn(
-          "p-8 flex flex-col items-center justify-center transition-all cursor-pointer",
+          "p-6 flex flex-col items-center justify-center transition-all cursor-pointer border-b border-sleek-border/50",
           isDragActive ? "bg-blue-50" : "hover:bg-slate-50"
         )}
       >
         <input {...getInputProps()} />
-        <Upload className={cn("w-6 h-6 mb-2", isDragActive ? "text-blue-500" : "text-slate-300")} />
-        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Drag proof documents here</p>
+        <Upload className={cn("w-5 h-5 mb-2", isDragActive ? "text-blue-500" : "text-slate-300")} />
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Attach more proof</p>
       </div>
       {files.length > 0 && (
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 divide-y divide-slate-200/50">
+        <div className="px-4 py-3 bg-white space-y-1 max-h-[140px] overflow-y-auto">
           {files.map((f, i) => (
-            <div key={i} className="py-2 text-[10px] flex items-center justify-between font-medium">
-              <span className="truncate max-w-[150px] text-slate-600">{f.file.name}</span>
-              <span className="text-slate-400">{(f.file.size / 1024).toFixed(0)} KB</span>
+            <div key={i} className="py-1.5 text-[10px] flex items-center justify-between font-bold group/file">
+              <div className="flex items-center space-x-2 min-w-0">
+                <FileText className="w-3 h-3 text-slate-300 shrink-0" />
+                <span className="truncate text-slate-600 italic leading-none">{f.file.name}</span>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); onRemoveFile(i); }} className="opacity-0 group-hover/file:opacity-100 p-0.5 hover:text-red-500 transition-opacity">
+                <XCircle className="w-3 h-3" />
+              </button>
             </div>
           ))}
         </div>
