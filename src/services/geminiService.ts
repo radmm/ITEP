@@ -3,6 +3,25 @@ import { Criterion, CriterionType, Bidder, Verdict, EvaluationStatus, CriterionE
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
+async function callGeminiWithRetry(params: any, retries = 2): Promise<any> {
+  let lastError;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await ai.models.generateContent(params);
+      if (!response.text) {
+        throw new Error("Empty response from AI");
+      }
+      return JSON.parse(response.text);
+    } catch (error: any) {
+      console.warn(`Gemini attempt ${i + 1} failed:`, error.message);
+      lastError = error;
+      // Wait a bit before retry (exponential backoff)
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Extracts eligibility criteria from a tender document.
  */
@@ -24,7 +43,7 @@ export async function extractCriteria(fileBase64: string, mimeType: string): Pro
     5. What specific evidence/value should be looked for (e.g., "GST Number", "Turnover amount", "ISO Certificate date").
   `;
 
-  const response = await ai.models.generateContent({
+  return await callGeminiWithRetry({
     model,
     contents: [
       {
@@ -61,8 +80,6 @@ export async function extractCriteria(fileBase64: string, mimeType: string): Pro
       }
     }
   });
-
-  return JSON.parse(response.text!);
 }
 
 /**
@@ -93,7 +110,7 @@ export async function evaluateBidder(
   const criteriaText = JSON.stringify(criteria, null, 2);
   const fileParts = files.map(f => ({ inlineData: { data: f.base64, mimeType: f.mimeType } }));
   
-  const response = await ai.models.generateContent({
+  const parsed = await callGeminiWithRetry({
     model,
     contents: [
       {
@@ -130,8 +147,6 @@ export async function evaluateBidder(
       }
     }
   });
-
-  const parsed = JSON.parse(response.text!);
   
   // Transform array back to record for easier frontend use
   const evaluationsRecord: Record<string, CriterionEvaluation> = {};

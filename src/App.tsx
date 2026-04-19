@@ -396,13 +396,24 @@ export default function App() {
                   <h2 className="text-3xl font-bold tracking-tight">{state.tenderName || "Tender Criteria Review"}</h2>
                   <p className="text-slate-500">Review and refine the elligibility criteria found in the document.</p>
                 </div>
-                <button 
-                  onClick={() => setCurrentStep('bidder-upload')}
-                  className="px-6 py-2 bg-crpf-navy text-white rounded font-bold text-[11px] uppercase tracking-widest flex items-center space-x-2 hover:bg-crpf-navy/90 transition-all shadow-md active:scale-95"
-                >
-                  <span>Authorize & Process Bids</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                  <div className="flex items-center space-x-3">
+                    <button 
+                      onClick={() => {
+                        setTenderFile(null);
+                        setCurrentStep('tender-upload');
+                      }}
+                      className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded font-bold text-[11px] uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
+                    >
+                      <span>Re-upload Tender</span>
+                    </button>
+                    <button 
+                      onClick={() => setCurrentStep('bidder-upload')}
+                      className="px-6 py-2 bg-crpf-navy text-white rounded font-bold text-[11px] uppercase tracking-widest flex items-center space-x-2 hover:bg-crpf-navy/90 transition-all shadow-md active:scale-95"
+                    >
+                      <span>Authorize & Process Bids</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
@@ -581,6 +592,18 @@ export default function App() {
                   <p className="text-slate-500">Detailed verdict breakdown for {state.tenderName}.</p>
                 </div>
                 <div className="flex gap-3">
+                   <button 
+                    onClick={() => {
+                      setState({ tenderName: '', criteria: [], bidders: [] });
+                      setBidderFiles({});
+                      setTenderFile(null);
+                      setCurrentStep('tender-upload');
+                    }}
+                    className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-slate-50 transition-all text-slate-700 shadow-sm"
+                  >
+                    <History className="w-4 h-4" />
+                    <span>New Evaluation</span>
+                  </button>
                    <button 
                     onClick={handleExportAuditLog}
                     className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs flex items-center space-x-2 hover:bg-slate-50 transition-all text-slate-700 shadow-sm"
@@ -768,7 +791,8 @@ interface BidderUploadBoxProps {
 const BidderUploadBox: React.FC<BidderUploadBoxProps> = ({ name, onDrop, onRemove, onRemoveFile, files }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] }
+    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] },
+    multiple: true
   } as any);
 
   return (
