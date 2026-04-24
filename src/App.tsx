@@ -55,6 +55,15 @@ export default function App() {
   const [bidderFiles, setBidderFiles] = useState<Record<string, { file: File; base64: string }[]>>({});
   const [selectedBidder, setSelectedBidder] = useState<Bidder | null>(null);
 
+  // --- Helper to mask email for display ---
+  const maskEmail = (email: string | null | undefined): string => {
+    if (!email) return '';
+    const [localPart, domain] = email.split('@');
+    if (!domain) return email;
+    if (localPart.length <= 2) return `${localPart[0]}...@${domain}`;
+    return `${localPart[0]}...${localPart[localPart.length - 1]}@${domain}`;
+  };
+
   // --- Helper to convert file to base64 ---
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -315,7 +324,7 @@ export default function App() {
           </div>
           <div className="text-right hidden sm:block border-l border-white/10 pl-4">
             <p className="text-xs font-bold text-white">{user?.displayName || 'Authorized Officer'}</p>
-            <p className="text-[9px] text-white/60 uppercase font-medium">{user?.email}</p>
+            <p className="text-[9px] text-white/60 uppercase font-medium">{maskEmail(user?.email)}</p>
           </div>
           <button 
             onClick={logout}
