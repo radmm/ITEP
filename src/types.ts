@@ -37,6 +37,7 @@ export interface CriterionEvaluation {
   foundValue: string;
   sourceReference: string;
   explanation: string;
+  confidenceScore: number; // 0-100
 }
 
 export interface Bidder {
@@ -45,6 +46,7 @@ export interface Bidder {
   status: EvaluationStatus;
   criteriaEvaluations: Record<string, CriterionEvaluation>;
   overallExplanation: string;
+  confidenceScore: number; // 0-100
 }
 
 export interface ProjectState {

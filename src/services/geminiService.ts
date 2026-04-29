@@ -120,6 +120,9 @@ export async function evaluateBidder(
   const systemInstruction = `
     You are an AI-based Tender Evaluation Specialist. 
     Evaluate bidder "${bidderName}" against these criteria: ${JSON.stringify(criteria)}
+    
+    For each criterion, provide a confidence score (0-100) based on how clearly the evidence is stated in the documents.
+    Also provide an overall confidence score for the entire evaluation.
   `;
 
   const fileParts = files.map(f => ({ inlineData: { data: f.base64, mimeType: f.mimeType } }));
@@ -139,21 +142,23 @@ export async function evaluateBidder(
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
-        required: ["status", "overallExplanation", "criteriaEvaluations"],
+        required: ["status", "overallExplanation", "confidenceScore", "criteriaEvaluations"],
         properties: {
           status: { type: Type.STRING, enum: Object.values(EvaluationStatus) },
           overallExplanation: { type: Type.STRING },
+          confidenceScore: { type: Type.NUMBER, description: "Overall confidence score (0-100)" },
           criteriaEvaluations: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
-              required: ["criterionId", "verdict", "foundValue", "sourceReference", "explanation"],
+              required: ["criterionId", "verdict", "foundValue", "sourceReference", "explanation", "confidenceScore"],
               properties: {
                 criterionId: { type: Type.STRING },
                 verdict: { type: Type.STRING, enum: Object.values(Verdict) },
                 foundValue: { type: Type.STRING },
                 sourceReference: { type: Type.STRING },
-                explanation: { type: Type.STRING }
+                explanation: { type: Type.STRING },
+                confidenceScore: { type: Type.NUMBER, description: "Confidence score for this specific criterion (0-100)" }
               }
             }
           }
@@ -172,6 +177,7 @@ export async function evaluateBidder(
     name: bidderName,
     status: parsed.status,
     overallExplanation: parsed.overallExplanation,
+    confidenceScore: parsed.confidenceScore,
     criteriaEvaluations: evaluationsRecord
   };
 }

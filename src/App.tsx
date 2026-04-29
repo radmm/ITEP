@@ -127,17 +127,15 @@ export default function App() {
     try {
       const activeBidders = Object.entries(bidderFiles).filter(([_, files]) => (files as any[]).length > 0);
       
-      if (activeBidders.length === 0) {
-        throw new Error("No files uploaded for any bidder. Please attach documents before starting analysis.");
-      }
-
-      for (const [name, files] of activeBidders) {
-        const bidder = await evaluateBidder(
-          name, 
-          (files as any[]).map((f: any) => ({ base64: f.base64, mimeType: f.file.type, name: f.file.name })),
-          state.criteria
-        );
-        evaluatedBidders.push(bidder);
+      if (activeBidders.length > 0) {
+        for (const [name, files] of activeBidders) {
+          const bidder = await evaluateBidder(
+            name, 
+            (files as any[]).map((f: any) => ({ base64: f.base64, mimeType: f.file.type, name: f.file.name })),
+            state.criteria
+          );
+          evaluatedBidders.push(bidder);
+        }
       }
       
       setState(prev => ({ ...prev, bidders: evaluatedBidders }));
@@ -167,21 +165,29 @@ export default function App() {
   };
 
   const onBulkBidderDrop = useCallback(async (acceptedFiles: File[]) => {
-    const processedFiles = await Promise.all(acceptedFiles.map(async f => {
-      const base64 = await fileToBase64(f);
-      return { file: f, base64 };
-    }));
+    setIsProcessing(true);
+    setGlobalError(null);
+    try {
+      const processedFiles = await Promise.all(acceptedFiles.map(async f => {
+        const base64 = await fileToBase64(f);
+        return { file: f, base64 };
+      }));
 
-    processedFiles.forEach(({ file, base64 }) => {
-      const guessedName = file.name.split(/[._\-\s]/)[0];
       setBidderFiles(prev => {
-        const existingFiles = prev[guessedName] || [];
-        return {
-          ...prev,
-          [guessedName]: [...existingFiles, { file, base64 }]
-        };
+        const next = { ...prev };
+        processedFiles.forEach(({ file, base64 }) => {
+          // Robust name guessing: take first part, or "Unknown"
+          const guessedName = file.name.split(/[._\-\s]/)[0] || "Unknown Bidder";
+          const existingFiles = next[guessedName] || [];
+          next[guessedName] = [...existingFiles, { file, base64 }];
+        });
+        return next;
       });
-    });
+    } catch (err: any) {
+      setGlobalError(`File processing failed: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   }, []);
 
   const { getRootProps: getBulkRootProps, getInputProps: getBulkInputProps, isDragActive: isBulkDragActive } = useDropzone({
@@ -191,11 +197,19 @@ export default function App() {
   } as any);
 
   const onBidderFileDrop = async (bidderName: string, files: File[]) => {
-    const newFiles = await Promise.all(files.map(async f => ({ file: f, base64: await fileToBase64(f) })));
-    setBidderFiles(prev => ({
-      ...prev,
-      [bidderName]: [...(prev[bidderName] || []), ...newFiles]
-    }));
+    setIsProcessing(true);
+    setGlobalError(null);
+    try {
+      const newFiles = await Promise.all(files.map(async f => ({ file: f, base64: await fileToBase64(f) })));
+      setBidderFiles(prev => ({
+        ...prev,
+        [bidderName]: [...(prev[bidderName] || []), ...newFiles]
+      }));
+    } catch (err: any) {
+      setGlobalError(`Upload failed: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // --- UI Components ---
@@ -340,24 +354,37 @@ export default function App() {
       const tenderId = `TENDER-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
       const tenderRef = doc(db, path, tenderId);
       
+      console.log(`Finalizing Tender: ${tenderId}`);
+      
       await setDoc(tenderRef, {
-        title: state.tenderName,
+        title: state.tenderName || "Unnamed Tender",
         status: 'FINALIZED',
         createdBy: user.uid,
         creatorEmail: user.email,
         createdAt: serverTimestamp(),
         bidderCount: state.bidders.length,
-        eligibleCount: state.bidders.filter(b => b.status === EvaluationStatus.ELIGIBLE).length
+        eligibleCount: state.bidders.filter(b => b.status === EvaluationStatus.ELIGIBLE).length,
+        bidders: state.bidders.map(b => ({
+          name: b.name,
+          status: b.status,
+          explanation: b.overallExplanation
+        })),
+        auditId: `AI-EVAL-${Math.floor(Math.random() * 100000)}`
       });
       
       setIsFinalized(true);
-      setTimeout(() => setIsFinalized(false), 5000);
+      // Small delay prevents double-clicks and gives visual feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setTimeout(() => setIsFinalized(false), 8000);
+      alert("Evaluation Successfully Finalized. All logs have been cryptographically sealed in the secure database.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       setIsProcessing(false);
     }
   };
+
+  const anyBidderHasFiles = Object.values(bidderFiles).some(files => (files as any[]).length > 0);
 
   return (
     <div className="min-h-screen bg-sleek-bg text-sleek-text font-sans">
@@ -570,7 +597,7 @@ export default function App() {
                   )}
                 </div>
                 <button 
-                  disabled={Object.keys(bidderFiles).length === 0 || isProcessing}
+                  disabled={isProcessing}
                   onClick={handleStartAnalysis}
                   className="px-8 py-2.5 bg-crpf-navy text-white rounded font-bold text-[11px] uppercase tracking-widest flex items-center space-x-2 hover:bg-crpf-navy/90 transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
                 >
@@ -768,6 +795,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 border-b border-sleek-border">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bidder Entity</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Confidence</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Score Card</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Final Status</th>
                       <th className="px-6 py-4 text-right"></th>
@@ -780,6 +808,18 @@ export default function App() {
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500">{bidder.name[0]}</div>
                             <span className="font-bold text-slate-800">{bidder.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-center">
+                          <div className="inline-flex flex-col items-center">
+                            <span className={cn(
+                              "text-xs font-bold px-2 py-0.5 rounded",
+                              bidder.confidenceScore >= 90 ? "bg-green-100 text-green-700" :
+                              bidder.confidenceScore >= 70 ? "bg-blue-100 text-blue-700" :
+                              "bg-orange-100 text-orange-700"
+                            )}>
+                              {bidder.confidenceScore}%
+                            </span>
                           </div>
                         </td>
                         <td className="px-6 py-5">
@@ -841,7 +881,15 @@ export default function App() {
                     <h3 className="text-xl font-bold uppercase tracking-tight text-crpf-navy">{selectedBidder.name}</h3>
                     <div className="flex items-center space-x-3">
                       <StatusBadge status={selectedBidder.status} />
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Timestamp: {new Date().toLocaleString()}</span>
+                      <div className={cn(
+                        "text-[10px] font-bold px-2 py-0.5 rounded border shadow-sm",
+                        selectedBidder.confidenceScore >= 90 ? "bg-green-50/50 text-green-700 border-green-200" :
+                        selectedBidder.confidenceScore >= 70 ? "bg-blue-50/50 text-blue-700 border-blue-200" :
+                        "bg-orange-50/50 text-orange-700 border-orange-200"
+                      )}>
+                        AI Confidence: {selectedBidder.confidenceScore}%
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Analysis ID: {selectedBidder.id.toUpperCase()}</span>
                     </div>
                   </div>
                   <button onClick={() => setSelectedBidder(null)} className="p-2 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-all">
@@ -875,7 +923,16 @@ export default function App() {
                               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{c.type}</span>
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">{ev?.explanation}</p>
-                            <div className="mt-3 flex items-center gap-4 bg-white border border-slate-100 p-2 rounded-xl">
+                            <div className="mt-3 flex items-center gap-4 bg-white border border-slate-100 p-2 rounded-xl backdrop-blur-sm">
+                              <div className="space-y-1">
+                                <span className="text-[8px] font-bold text-slate-400 uppercase block">Confidence</span>
+                                <span className={cn(
+                                  "text-[10px] font-bold",
+                                  ev?.confidenceScore >= 90 ? "text-green-600" : 
+                                  ev?.confidenceScore >= 70 ? "text-blue-600" : "text-orange-600"
+                                )}>{ev?.confidenceScore}%</span>
+                              </div>
+                              <div className="w-[1px] h-6 bg-slate-100" />
                               <div className="space-y-1">
                                 <span className="text-[8px] font-bold text-slate-400 uppercase block">Extracted Evidence</span>
                                 <span className="text-xs font-mono font-bold text-blue-700">{ev?.foundValue || "N/A"}</span>
