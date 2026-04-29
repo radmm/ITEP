@@ -34,7 +34,7 @@ import {
   Verdict,
   ProjectState 
 } from './types';
-import { extractCriteria, evaluateBidder } from './services/geminiService';
+import { extractCriteria, evaluateBidder, isAiReady } from './services/geminiService';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
 
@@ -51,6 +51,8 @@ export default function App() {
     criteria: [],
     bidders: []
   });
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [isFinalized, setIsFinalized] = useState(false);
 
   const [bidderFiles, setBidderFiles] = useState<Record<string, { file: File; base64: string }[]>>({});
   const [selectedBidder, setSelectedBidder] = useState<Bidder | null>(null);
@@ -81,6 +83,7 @@ export default function App() {
   const onTenderDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
 
+    setGlobalError(null);
     setIsProcessing(true);
     try {
       const filesWithBase64 = await Promise.all(acceptedFiles.map(async f => ({
@@ -100,9 +103,9 @@ export default function App() {
         criteria: extracted.criteria 
       }));
       setCurrentStep('criteria-review');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to extract criteria:', error);
-      alert('Error parsing tender documents. Please check the file formats.');
+      setGlobalError(error.message || 'Error parsing tender documents. Please check the file formats.');
     } finally {
       setIsProcessing(false);
     }
@@ -115,13 +118,20 @@ export default function App() {
   } as any);
 
   const handleStartAnalysis = async () => {
+    setGlobalError(null);
     setIsProcessing(true);
     setCurrentStep('analysis');
     
     const evaluatedBidders: Bidder[] = [];
     
     try {
-      for (const [name, files] of Object.entries(bidderFiles)) {
+      const activeBidders = Object.entries(bidderFiles).filter(([_, files]) => (files as any[]).length > 0);
+      
+      if (activeBidders.length === 0) {
+        throw new Error("No files uploaded for any bidder. Please attach documents before starting analysis.");
+      }
+
+      for (const [name, files] of activeBidders) {
         const bidder = await evaluateBidder(
           name, 
           (files as any[]).map((f: any) => ({ base64: f.base64, mimeType: f.file.type, name: f.file.name })),
@@ -132,9 +142,10 @@ export default function App() {
       
       setState(prev => ({ ...prev, bidders: evaluatedBidders }));
       setCurrentStep('results');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Analysis failed:', error);
-      alert('Analysis failed. Check logs.');
+      setGlobalError(error.message || 'Analysis failed. Check your network or API key.');
+      setCurrentStep('bidder-upload'); // Go back so they can fix or retry
     } finally {
       setIsProcessing(false);
     }
@@ -156,17 +167,21 @@ export default function App() {
   };
 
   const onBulkBidderDrop = useCallback(async (acceptedFiles: File[]) => {
-    for (const f of acceptedFiles) {
+    const processedFiles = await Promise.all(acceptedFiles.map(async f => {
       const base64 = await fileToBase64(f);
-      const guessedName = f.name.split(/[._\-\s]/)[0];
+      return { file: f, base64 };
+    }));
+
+    processedFiles.forEach(({ file, base64 }) => {
+      const guessedName = file.name.split(/[._\-\s]/)[0];
       setBidderFiles(prev => {
         const existingFiles = prev[guessedName] || [];
         return {
           ...prev,
-          [guessedName]: [...existingFiles, { file: f, base64 }]
+          [guessedName]: [...existingFiles, { file, base64 }]
         };
       });
-    }
+    });
   }, []);
 
   const { getRootProps: getBulkRootProps, getInputProps: getBulkInputProps, isDragActive: isBulkDragActive } = useDropzone({
@@ -279,12 +294,51 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  enum OperationType {
+    CREATE = 'create',
+    UPDATE = 'update',
+    DELETE = 'delete',
+    LIST = 'list',
+    GET = 'get',
+    WRITE = 'write',
+  }
+
+  interface FirestoreErrorInfo {
+    error: string;
+    operationType: OperationType;
+    path: string | null;
+    authInfo: {
+      userId?: string | null;
+      email?: string | null;
+      emailVerified?: boolean | null;
+    }
+  }
+
+  function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+    const errInfo: FirestoreErrorInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: user?.uid,
+        email: user?.email,
+        emailVerified: (user as any)?.emailVerified,
+      },
+      operationType,
+      path
+    };
+    const jsonError = JSON.stringify(errInfo);
+    console.error('Firestore Error: ', jsonError);
+    setGlobalError(`Database Error: ${errInfo.error}`);
+    throw new Error(jsonError);
+  }
+
   const handleFinalizeSelection = async () => {
     if (!user) return;
     setIsProcessing(true);
+    setGlobalError(null);
+    const path = 'tenders';
     try {
       const tenderId = `TENDER-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-      const tenderRef = doc(db, 'tenders', tenderId);
+      const tenderRef = doc(db, path, tenderId);
       
       await setDoc(tenderRef, {
         title: state.tenderName,
@@ -296,10 +350,10 @@ export default function App() {
         eligibleCount: state.bidders.filter(b => b.status === EvaluationStatus.ELIGIBLE).length
       });
       
-      alert("System Status: Selection Finalized. All evaluation logs have been cryptographically sealed and archived in the secure node database.");
+      setIsFinalized(true);
+      setTimeout(() => setIsFinalized(false), 5000);
     } catch (error) {
-      console.error("Finalization Error:", error);
-      alert("Security Protocol Failure: Unable to write to secure database. Check node permissions.");
+      handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       setIsProcessing(false);
     }
@@ -359,6 +413,26 @@ export default function App() {
               <div className="space-y-2">
                 <h2 className="text-3xl font-bold tracking-tight">Step 1: Tender Identification</h2>
                 <p className="text-slate-500 max-w-2xl">Upload the official tender document (PDF/Image). Our AI will extract eligibility criteria, compliance rules, and financial benchmarks automatically.</p>
+                {!isAiReady && (
+                  <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center space-x-3 text-red-600">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <p className="text-xs font-bold uppercase tracking-wider">Warning: Gemini API Key is missing. The system will not be able to process documents.</p>
+                  </div>
+                )}
+                {globalError && (
+                  <div className="mt-4 p-4 bg-orange-50 border border-orange-100 rounded-xl flex flex-col space-y-2">
+                    <div className="flex items-center space-x-3 text-orange-700">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <p className="text-xs font-bold uppercase tracking-wider">System Error: {globalError}</p>
+                    </div>
+                    <button 
+                      onClick={() => setGlobalError(null)}
+                      className="text-[10px] font-bold text-orange-600 uppercase hover:underline text-left pl-8"
+                    >
+                      Clear Error & Try Again
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div 
@@ -480,6 +554,20 @@ export default function App() {
                 <div className="space-y-2">
                   <h2 className="text-3xl font-bold tracking-tight">Step 3: Bidder Discovery & Ingestion</h2>
                   <p className="text-slate-500 max-w-2xl">Register bidders and upload their technical/financial document sets. Our AI handles multi-file packages (e.g. Turnover + ISO Cert + Experience Letters) per bidder.</p>
+                  {globalError && (
+                    <div className="mt-4 p-4 bg-orange-50 border border-orange-100 rounded-xl flex flex-col space-y-2">
+                      <div className="flex items-center space-x-3 text-orange-700">
+                        <AlertCircle className="w-5 h-5 shrink-0" />
+                        <p className="text-xs font-bold uppercase tracking-wider">System Error: {globalError}</p>
+                      </div>
+                      <button 
+                        onClick={() => setGlobalError(null)}
+                        className="text-[10px] font-bold text-orange-600 uppercase hover:underline text-left pl-8"
+                      >
+                        Clear Error & Try Again
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button 
                   disabled={Object.keys(bidderFiles).length === 0 || isProcessing}
@@ -599,7 +687,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               className="space-y-8"
             >
-              <div className="flex items-end justify-between">
+              <div className="flex items-end justify-between px-6 py-4 bg-white border border-sleek-border rounded shadow-sleek -mx-6 mb-8 border-l-4 border-l-crpf-navy">
                 <div className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full" />
@@ -607,6 +695,35 @@ export default function App() {
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Consolidated Eligibility Report</h2>
                   <p className="text-slate-500">Detailed verdict breakdown for {state.tenderName}.</p>
+                  
+                  {isFinalized && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: -10 }} 
+                      animate={{ opacity: 1, x: 0 }} 
+                      className="mt-4 p-4 bg-green-50 border border-green-100 rounded-xl flex items-center space-x-3 text-green-700 shadow-sm"
+                    >
+                      <ShieldCheck className="w-5 h-5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider">Evaluation Sealed & Archived</p>
+                        <p className="text-[10px] font-medium opacity-80">All decision logs have been cryptographically signed and stored in the secure node.</p>
+                      </div>
+                    </motion.div>
+                  )}
+                  
+                  {globalError && (
+                    <div className="mt-4 p-4 bg-orange-50 border border-orange-100 rounded-xl flex flex-col space-y-2">
+                      <div className="flex items-center space-x-3 text-orange-700">
+                        <AlertCircle className="w-5 h-5 shrink-0" />
+                        <p className="text-xs font-bold uppercase tracking-wider">System Error: {globalError}</p>
+                      </div>
+                      <button 
+                        onClick={() => setGlobalError(null)}
+                        className="text-[10px] font-bold text-orange-600 uppercase hover:underline text-left pl-8"
+                      >
+                        Clear Error & Try Again
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-3">
                    <button 

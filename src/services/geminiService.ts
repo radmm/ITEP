@@ -1,22 +1,45 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Criterion, CriterionType, Bidder, Verdict, EvaluationStatus, CriterionEvaluation } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+// Safety check for API key to prevent module load crash in non-configured environments
+const apiKey = process.env.GEMINI_API_KEY;
+
+// Initialize lazily or with a dummy check to avoid crashing the whole app
+let ai: GoogleGenAI | null = null;
+if (apiKey) {
+  ai = new GoogleGenAI({ apiKey });
+}
+
+export const isAiReady = !!ai;
 
 async function callGeminiWithRetry(params: any, retries = 2): Promise<any> {
+  if (!ai) {
+    throw new Error("Gemini API key is not configured. Please add GEMINI_API_KEY to your environment variables.");
+  }
+  
   let lastError;
   for (let i = 0; i < retries; i++) {
     try {
       const response = await ai.models.generateContent(params);
-      if (!response.text) {
+      const text = response.text;
+      
+      if (!text) {
         throw new Error("Empty response from AI");
       }
-      return JSON.parse(response.text);
+      
+      // Clean up markdown blocks if the model returned them
+      const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      
+      try {
+        return JSON.parse(cleanText);
+      } catch (parseError) {
+        console.error("Failed to parse JSON response:", cleanText);
+        throw new Error("AI returned invalid JSON format. Retrying...");
+      }
     } catch (error: any) {
       console.warn(`Gemini attempt ${i + 1} failed:`, error.message);
       lastError = error;
-      // Wait a bit before retry (exponential backoff)
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
     }
   }
   throw lastError;
@@ -26,21 +49,21 @@ async function callGeminiWithRetry(params: any, retries = 2): Promise<any> {
  * Extracts eligibility criteria from one or more tender documents.
  */
 export async function extractCriteria(files: { base64: string; mimeType: string }[]): Promise<{ tenderName: string; criteria: Criterion[] }> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-flash-preview";
   
   const systemInstruction = `
     You are an expert procurement officer specialized in Indian Government Tenders (CRPF).
     Your task is to analyze the provided tender document(s) and extract all ELIGIBILITY CRITERIA.
     
     Categorize them into: Technical, Financial, Compliance, and Documentation.
-    Distinguish between Mandatory and Optional based on the language (e.g., "must", "shall", "mandatory" vs "desirable", "optional").
+    Distinguish between Mandatory and Optional.
     
     For each criterion, provide:
     1. A concise name.
     2. The type.
     3. A clear description of what is required.
     4. Whether it is mandatory.
-    5. What specific evidence/value should be looked for (e.g., "GST Number", "Turnover amount", "ISO Certificate date").
+    5. What specific evidence/value should be looked for (e.g., "GST Number").
   `;
 
   const fileParts = files.map(f => ({ inlineData: { data: f.base64, mimeType: f.mimeType } }));
@@ -92,24 +115,13 @@ export async function evaluateBidder(
   files: { base64: string; mimeType: string; name: string }[],
   criteria: Criterion[]
 ): Promise<Bidder> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-flash-preview";
 
   const systemInstruction = `
     You are an AI-based Tender Evaluation Specialist. 
-    You are given a list of eligibility criteria and several documents from a bidder named "${bidderName}".
-    
-    Your goal is to evaluate the bidder against EACH criterion.
-    
-    Strict rules:
-    1. Explainability: Every verdict must reference the document name and the specific value/evidence found.
-    2. Auditability: If you find evidence, quote it or describe exactly where it is.
-    3. Honesty/Ambiguity: If a document is a scan and you can't read a value clearly, or if information is missing, mark as "Ambiguous" and state the reason. NEVER silently disqualify.
-    4. Verdicts: "Pass", "Fail", or "Ambiguous".
-    
-    The output must define an overall status and a per-criterion breakdown.
+    Evaluate bidder "${bidderName}" against these criteria: ${JSON.stringify(criteria)}
   `;
 
-  const criteriaText = JSON.stringify(criteria, null, 2);
   const fileParts = files.map(f => ({ inlineData: { data: f.base64, mimeType: f.mimeType } }));
   
   const parsed = await callGeminiWithRetry({
@@ -118,7 +130,7 @@ export async function evaluateBidder(
       {
         parts: [
           ...fileParts,
-          { text: `Evaluate bidder "${bidderName}" against these criteria:\n\n${criteriaText}` }
+          { text: `Evaluate bidder "${bidderName}" and return JSON.` }
         ]
       }
     ],
@@ -149,8 +161,7 @@ export async function evaluateBidder(
       }
     }
   });
-  
-  // Transform array back to record for easier frontend use
+
   const evaluationsRecord: Record<string, CriterionEvaluation> = {};
   parsed.criteriaEvaluations.forEach((evalItem: CriterionEvaluation) => {
     evaluationsRecord[evalItem.criterionId] = evalItem;
