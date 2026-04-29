@@ -1,6 +1,6 @@
 {
   "name": "CRPF Tender Evaluator",
-  "description": "AI-powered tender evaluation and eligibility analysis platform for government procurement, providing explainable and auditable results.",
+  "description": "Secure, AI-powered tender evaluation platform for CRPF. Automates eligibility checks, extracts evidence from documents, and provides auditable decision logs with confidence scoring.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
