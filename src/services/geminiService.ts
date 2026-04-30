@@ -20,7 +20,16 @@ async function callGeminiWithRetry(params: any, retries = 2): Promise<any> {
   let lastError;
   for (let i = 0; i < retries; i++) {
     try {
-      const response = await ai.models.generateContent(params);
+      const response = await ai.models.generateContent({
+        model: params.model,
+        contents: params.contents,
+        config: {
+          systemInstruction: params.config?.systemInstruction,
+          responseMimeType: params.config?.responseMimeType,
+          responseSchema: params.config?.responseSchema
+        }
+      });
+
       const text = response.text;
       
       if (!text) {
