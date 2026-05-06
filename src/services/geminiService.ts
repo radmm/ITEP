@@ -6,7 +6,7 @@ const apiKey = process.env.GEMINI_API_KEY;
 
 // Initialize lazily or with a dummy check to avoid crashing the whole app
 let ai: GoogleGenAI | null = null;
-if (apiKey) {
+if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey !== "") {
   ai = new GoogleGenAI({ apiKey });
 }
 

@@ -401,9 +401,39 @@ export default function App() {
                 <h2 className="text-3xl font-bold tracking-tight">Step 1: Tender Identification</h2>
                 <p className="text-slate-500 max-w-2xl">Upload the official tender document (PDF/Image). Our AI will extract eligibility criteria, compliance rules, and financial benchmarks automatically.</p>
                 {!isAiReady && (
-                  <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center space-x-3 text-red-600">
-                    <AlertCircle className="w-5 h-5 shrink-0" />
-                    <p className="text-xs font-bold uppercase tracking-wider">Warning: Gemini API Key is missing. The system will not be able to process documents.</p>
+                  <div className="mt-4 p-5 bg-red-50 border border-red-200 rounded-xl flex flex-col space-y-3 text-red-700 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <AlertCircle className="w-5 h-5 shrink-0" />
+                        <p className="text-sm font-bold uppercase tracking-wider">Critical Configuration: Gemini API Key Missing</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          // Bypass check for demo purposes
+                          setState(prev => ({
+                            ...prev,
+                            tenderName: "CRPF-2024-MODERN-WEAPONRY-04",
+                            criteria: [
+                              { id: '1', name: 'GST Certification', type: CriterionType.COMPLIANCE, description: 'Must have valid Indian GST registration.', isMandatory: true, evidenceRequirement: 'GSTIN Certificate' },
+                              { id: '2', name: 'Annual Turnover', type: CriterionType.FINANCIAL, description: 'Minimum turnonver of 50 Cr in last 3 years.', isMandatory: true, evidenceRequirement: 'Audit Reports' },
+                              { id: '3', name: 'Previous Experience', type: CriterionType.TECHNICAL, description: 'Minimum 5 years in tactical manufacturing.', isMandatory: false, evidenceRequirement: 'PO Copies' }
+                            ]
+                          }));
+                          setCurrentStep(2);
+                        }}
+                        className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-800 text-[10px] font-bold rounded border border-red-300 transition-colors"
+                      >
+                        RUN DEMO MODE
+                      </button>
+                    </div>
+                    <div className="text-xs space-y-2 leading-relaxed">
+                      <p>The system cannot process documents without a valid API key. Please follow these steps:</p>
+                      <ul className="list-disc pl-5 space-y-1">
+                        <li><strong>AI Studio:</strong> Add <code className="bg-red-100 px-1 rounded">GEMINI_API_KEY</code> to the <strong>Secrets</strong> panel in the sidebar.</li>
+                        <li><strong>Vercel:</strong> Add <code className="bg-red-100 px-1 rounded">GEMINI_API_KEY</code> as an <strong>Environment Variable</strong> in your project settings and redeploy.</li>
+                        <li>Restart the development server if you just added the key locally.</li>
+                      </ul>
+                    </div>
                   </div>
                 )}
                 {globalError && (
