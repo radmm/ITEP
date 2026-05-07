@@ -1,4 +1,4 @@
-# ITEP — Intelligent Tender Evaluation Platform
+# ITEP - Intelligent Tender Evaluation Platform
 
 <p align="center">
   <img src="https://cdn.discordapp.com/attachments/1463227227507527776/1501802871686037645/Untitled4_20260507095806.png?ex=69fd666a&is=69fc14ea&hm=49a0c60459aca554649d4ac386cf0d72f246aeab441a29fd9c242d9ff1360245&" alt="ITEP Banner" width="100%" />
