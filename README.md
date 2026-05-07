@@ -33,4 +33,4 @@ npm run dev
 
 ```
 
-Firebase is optional — without firebase-applet-config.json the app runs in Guest Mode.
+Firebase is optional - without firebase-applet-config.json the app runs in Guest Mode.
