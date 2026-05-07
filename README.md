@@ -20,3 +20,17 @@
 git clone https://github.com/radmm/ITEP.git
 cd ITEP
 npm install
+```
+Create a `.env.local` file in the root of the project:
+
+```env
+GEMINI_API_KEY=your_key_here
+```
+Then run:
+
+```bash
+npm run dev
+
+```
+
+Firebase is optional — without firebase-applet-config.json the app runs in Guest Mode.
